@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { normalizeNulRedirects } from "../extensions/nul-redirect.ts";
-import { normalizeBashPaths } from "../extensions/path-fix.ts";
+import {
+	normalizeBashPaths,
+	normalizePathSpacing,
+} from "../extensions/path-fix.ts";
 
 // ── NUL redirect ────────────────────────────────────────────────
 
@@ -115,6 +118,90 @@ describe("normalizeBashPaths", () => {
 		it("leaves already-normal paths alone", () => {
 			expect(normalizeBashPaths("echo hello")).toBe("echo hello");
 			expect(normalizeBashPaths("ls -la")).toBe("ls -la");
+		});
+	});
+});
+
+// ── Path spacing quoting ────────────────────────────────────────
+
+describe("normalizePathSpacing", () => {
+	describe("non-Windows no-op", () => {
+		beforeEach(() => {
+			vi.stubGlobal("process", { ...process, platform: "linux" });
+		});
+		afterEach(() => {
+			vi.unstubAllGlobals();
+		});
+
+		it("does nothing", () => {
+			expect(normalizePathSpacing("cd /c/Program Files/Git")).toBe(
+				"cd /c/Program Files/Git",
+			);
+		});
+	});
+
+	describe("Windows", () => {
+		it("quotes cd path with spaces", () => {
+			expect(normalizePathSpacing("cd /c/Program Files/Git")).toBe(
+				'cd "/c/Program Files/Git"',
+			);
+		});
+
+		it("handles multiple drive-letter paths, quoting only the one with spaces", () => {
+			expect(normalizePathSpacing("diff /c/a.txt /d/My Documents/b.txt")).toBe(
+				'diff /c/a.txt "/d/My Documents/b.txt"',
+			);
+		});
+
+		it("quotes path before pipe", () => {
+			expect(
+				normalizePathSpacing("cat /c/Program Files/data.txt | grep foo"),
+			).toBe('cat "/c/Program Files/data.txt" | grep foo');
+		});
+
+		it("quotes redirect target path", () => {
+			expect(normalizePathSpacing("echo hi > /c/Program Files/out.txt")).toBe(
+				'echo hi > "/c/Program Files/out.txt"',
+			);
+		});
+
+		it("does not double-quote already double-quoted paths", () => {
+			expect(normalizePathSpacing('cd "/c/Program Files/Git"')).toBe(
+				'cd "/c/Program Files/Git"',
+			);
+		});
+
+		it("does not quote already single-quoted paths", () => {
+			expect(normalizePathSpacing("cd '/c/Program Files/Git'")).toBe(
+				"cd '/c/Program Files/Git'",
+			);
+		});
+
+		it("leaves paths without spaces alone", () => {
+			expect(normalizePathSpacing("cd /c/Users/Daniel")).toBe(
+				"cd /c/Users/Daniel",
+			);
+		});
+
+		it("handles path before &&", () => {
+			expect(normalizePathSpacing("cd /c/Program Files/Git && ls")).toBe(
+				'cd "/c/Program Files/Git" && ls',
+			);
+		});
+
+		it("handles multiple path arguments in pipes", () => {
+			expect(
+				normalizePathSpacing(
+					"cd /c/Program Files/Git && cat /d/My Docs/readme.txt",
+				),
+			).toBe('cd "/c/Program Files/Git" && cat "/d/My Docs/readme.txt"');
+		});
+
+		it("leaves commands without paths unchanged", () => {
+			expect(normalizePathSpacing("echo hello")).toBe("echo hello");
+			expect(normalizePathSpacing("ls -la | grep foo")).toBe(
+				"ls -la | grep foo",
+			);
 		});
 	});
 });
