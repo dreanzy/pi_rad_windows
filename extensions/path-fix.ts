@@ -27,6 +27,60 @@ export function normalizeBashPaths(command: string): string {
 }
 
 /**
+ * Convert cmd.exe `cd /d X:\...` to Git Bash `cd /x/...`.
+ *
+ * LLMs trained on Windows data sometimes emit `cd /d D:\path` which is
+ * cmd.exe syntax — Git Bash interprets `/d` as a directory argument.
+ * Strips the flag and normalizes the drive letter path.
+ *
+ * Must run BEFORE normalizeBashPaths so the resulting /x/ path is
+ * further cleaned up (backslashes → forward slashes).
+ *
+ * No-op on non-Windows platforms.
+ */
+export function normalizeCdD(command: string): string {
+	if (process.platform !== "win32") return command;
+
+	return command.replace(
+		/cd\s+\/d\s+([A-Za-z]):[\\/]/gi,
+		(_match, drive: string) => `cd /${drive.toLowerCase()}/`,
+	);
+}
+
+/**
+ * Normalize /tmp/ prefix in write tool paths.
+ *
+ * On Windows, `write({path: "/tmp/foo.py"})` and `bash("python /tmp/foo.py")`
+ * resolve /tmp/ to different directories (Node path.resolve vs MSYS2 translation).
+ * Rewrite to cwd-relative path so both tools agree.
+ *
+ * No-op on non-Windows platforms.
+ */
+export function normalizeTmpPath(p: string): string {
+	if (process.platform !== "win32") return p;
+	return p.replace(/^\/tmp\//, "./");
+}
+
+/**
+ * Rewrite /tmp/ file references in bash commands to cwd-relative paths.
+ *
+ * On Windows, `/tmp/` resolves differently in the `write` tool (Node.js
+ * path.resolve) vs Git Bash (MSYS2 translation). This causes "file not
+ * found" when LLM writes to `/tmp/` then runs it. Rewrites all `/tmp/`
+ * bare references to `./` so both tools agree on the path.
+ *
+ * Uses negative lookbehind `(?<!\w)` to avoid false matches in URLs
+ * (localhost/tmp/...) and already-normalized MSYS paths (/c/tmp/...).
+ *
+ * No-op on non-Windows platforms.
+ */
+export function normalizeBashTmpRefs(command: string): string {
+	if (process.platform !== "win32") return command;
+
+	return command.replace(/(?<!\w)\/tmp\//g, "./");
+}
+
+/**
  * Quote paths with spaces so Git Bash doesn't split them into multiple args.
  *
  * LLMs commonly emit paths like `/c/Program Files/Git` without quoting,

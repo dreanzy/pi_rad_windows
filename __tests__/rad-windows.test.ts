@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { normalizeNulRedirects } from "../extensions/nul-redirect.ts";
 import {
 	normalizeBashPaths,
+	normalizeBashTmpRefs,
+	normalizeCdD,
 	normalizePathSpacing,
+	normalizeTmpPath,
 } from "../extensions/path-fix.ts";
 
 // ── NUL redirect ────────────────────────────────────────────────
@@ -118,6 +121,162 @@ describe("normalizeBashPaths", () => {
 		it("leaves already-normal paths alone", () => {
 			expect(normalizeBashPaths("echo hello")).toBe("echo hello");
 			expect(normalizeBashPaths("ls -la")).toBe("ls -la");
+		});
+	});
+});
+
+// ── cd /d normalization ────────────────────────────────────────
+
+describe("normalizeCdD", () => {
+	describe("non-Windows no-op", () => {
+		beforeEach(() => {
+			vi.stubGlobal("process", { ...process, platform: "linux" });
+		});
+		afterEach(() => {
+			vi.unstubAllGlobals();
+		});
+
+		it("does nothing", () => {
+			expect(normalizeCdD("cd /d D:\\Projects\\test")).toBe(
+				"cd /d D:\\Projects\\test",
+			);
+		});
+	});
+
+	describe("Windows", () => {
+		it("strips /d flag from cd /d D:\\...", () => {
+			expect(
+				normalizeCdD("cd /d D:\\Projects\\TsProjects\\pi_rad_joplin"),
+			).toBe("cd /d/Projects\\TsProjects\\pi_rad_joplin");
+			// 注：\ → / 由 normalizeBashPaths 在后续管线处理
+		});
+
+		it("handles uppercase /D", () => {
+			expect(normalizeCdD("cd /D C:\\Windows")).toBe("cd /c/Windows");
+		});
+
+		it("handles forward slash paths too", () => {
+			expect(normalizeCdD("cd /d D:/Projects/test")).toBe(
+				"cd /d/Projects/test",
+			);
+		});
+
+		it("leaves normal cd commands alone", () => {
+			expect(normalizeCdD("cd /c/Users")).toBe("cd /c/Users");
+			expect(normalizeCdD("cd /tmp")).toBe("cd /tmp");
+		});
+
+		it("does not touch /d outside of cd context", () => {
+			expect(normalizeCdD("ls /d/someflag")).toBe("ls /d/someflag");
+		});
+	});
+});
+
+// ── /tmp/ path normalization ────────────────────────────────────
+
+describe("normalizeTmpPath", () => {
+	describe("non-Windows no-op", () => {
+		beforeEach(() => {
+			vi.stubGlobal("process", { ...process, platform: "linux" });
+		});
+		afterEach(() => {
+			vi.unstubAllGlobals();
+		});
+
+		it("does nothing", () => {
+			expect(normalizeTmpPath("/tmp/script.py")).toBe("/tmp/script.py");
+		});
+	});
+
+	describe("Windows", () => {
+		it("rewrites /tmp/ prefix to ./", () => {
+			expect(normalizeTmpPath("/tmp/check_folders.py")).toBe(
+				"./check_folders.py",
+			);
+		});
+
+		it("rewrites nested paths too", () => {
+			expect(normalizeTmpPath("/tmp/subdir/file.txt")).toBe(
+				"./subdir/file.txt",
+			);
+		});
+
+		it("leaves non-/tmp/ paths alone", () => {
+			expect(normalizeTmpPath("./local/file.ts")).toBe("./local/file.ts");
+			expect(normalizeTmpPath("C:\\Users\\file.txt")).toBe(
+				"C:\\Users\\file.txt",
+			);
+		});
+	});
+});
+
+describe("normalizeBashTmpRefs", () => {
+	describe("non-Windows no-op", () => {
+		beforeEach(() => {
+			vi.stubGlobal("process", { ...process, platform: "linux" });
+		});
+		afterEach(() => {
+			vi.unstubAllGlobals();
+		});
+
+		it("does nothing", () => {
+			expect(normalizeBashTmpRefs("python /tmp/script.py")).toBe(
+				"python /tmp/script.py",
+			);
+		});
+	});
+
+	describe("Windows", () => {
+		it("rewrites python /tmp/... to python ./...", () => {
+			expect(normalizeBashTmpRefs("python /tmp/check_folders.py")).toBe(
+				"python ./check_folders.py",
+			);
+		});
+
+		it("rewrites any command /tmp/...", () => {
+			expect(normalizeBashTmpRefs("node /tmp/server.js")).toBe(
+				"node ./server.js",
+			);
+			expect(normalizeBashTmpRefs("bash /tmp/deploy.sh")).toBe(
+				"bash ./deploy.sh",
+			);
+			expect(normalizeBashTmpRefs("cat /tmp/data.txt")).toBe("cat ./data.txt");
+		});
+
+		it("rewrites /tmp/ in redirect targets", () => {
+			expect(normalizeBashTmpRefs("echo log > /tmp/out.txt")).toBe(
+				"echo log > ./out.txt",
+			);
+			expect(normalizeBashTmpRefs("cmd >> /tmp/log.txt")).toBe(
+				"cmd >> ./log.txt",
+			);
+		});
+
+		it("rewrites /tmp/ in flag arguments", () => {
+			expect(
+				normalizeBashTmpRefs("python /tmp/a.py --output /tmp/out.txt"),
+			).toBe("python ./a.py --output ./out.txt");
+		});
+
+		it("does NOT rewrite /tmp/ in URLs", () => {
+			expect(normalizeBashTmpRefs('curl -s "http://localhost/tmp/data"')).toBe(
+				'curl -s "http://localhost/tmp/data"',
+			);
+		});
+
+		it("does NOT rewrite /tmp/ after a word character", () => {
+			// After normalizeBashPaths: /c/tmp/file.py → /tmp/ preceded by 'c'
+			expect(normalizeBashTmpRefs("/c/tmp/file.py")).toBe("/c/tmp/file.py");
+		});
+
+		it("does NOT match /tmp without trailing slash", () => {
+			expect(normalizeBashTmpRefs("ls /tmp")).toBe("ls /tmp");
+		});
+
+		it("rewrites multiple /tmp/ occurrences", () => {
+			expect(normalizeBashTmpRefs("python /tmp/a.py && python /tmp/b.py")).toBe(
+				"python ./a.py && python ./b.py",
+			);
 		});
 	});
 });
