@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { normalizeNulRedirects } from "../extensions/nul-redirect.ts";
 import {
+	extractHeredocChunks,
 	normalizeBashPaths,
 	normalizeBashTmpRefs,
 	normalizeCdD,
 	normalizePathSpacing,
 	normalizeTmpPath,
+	restoreHeredocChunks,
 } from "../extensions/path-fix.ts";
 
 // ── NUL redirect ────────────────────────────────────────────────
@@ -356,11 +358,79 @@ describe("normalizePathSpacing", () => {
 			).toBe('cd "/c/Program Files/Git" && cat "/d/My Docs/readme.txt"');
 		});
 
+		it("does not swallow fd-redirect numbers into the quoted path", () => {
+			expect(normalizePathSpacing("ls /d/foo/src 2>/dev/null")).toBe(
+				"ls /d/foo/src 2>/dev/null",
+			);
+			expect(
+				normalizePathSpacing("cd /c/Program Files/x && ls /d/foo/src 2>&1"),
+			).toBe('cd "/c/Program Files/x" && ls /d/foo/src 2>&1');
+			expect(normalizePathSpacing("ls /d/foo/src 2>>/dev/null")).toBe(
+				"ls /d/foo/src 2>>/dev/null",
+			);
+		});
+
 		it("leaves commands without paths unchanged", () => {
 			expect(normalizePathSpacing("echo hello")).toBe("echo hello");
 			expect(normalizePathSpacing("ls -la | grep foo")).toBe(
 				"ls -la | grep foo",
 			);
+		});
+	});
+
+	describe("heredoc protection", () => {
+		it("skips path normalization inside heredoc bodies", () => {
+			const cmd =
+				"cat > out.txt <<'EOF'\n" +
+				"D:\\Projects\\foo 2> nul\n" +
+				"/tmp/x.py\n" +
+				"EOF\n" +
+				"ls D:/Projects && echo done";
+			const { command, chunks } = extractHeredocChunks(cmd);
+			const normalized = normalizeBashTmpRefs(
+				normalizeBashPaths(normalizeNulRedirects(command)),
+			);
+			expect(restoreHeredocChunks(normalized, chunks)).toBe(
+				"cat > out.txt <<'EOF'\n" +
+					"D:\\Projects\\foo 2> nul\n" +
+					"/tmp/x.py\n" +
+					"EOF\n" +
+					"ls /d/Projects && echo done",
+			);
+		});
+
+		it("handles <<- tab-indented delimiters", () => {
+			const cmd = "cat <<-END\n\tD:\\x\n\tEND";
+			const { command, chunks } = extractHeredocChunks(cmd);
+			expect(restoreHeredocChunks(normalizeBashPaths(command), chunks)).toBe(
+				"cat <<-END\n\tD:\\x\n\tEND",
+			);
+		});
+
+		it("handles <<\\ escaped delimiters", () => {
+			const cmd = "cat <<\\EOF\nD:\\x\nEOF";
+			const { command, chunks } = extractHeredocChunks(cmd);
+			expect(restoreHeredocChunks(normalizeBashPaths(command), chunks)).toBe(
+				"cat <<'EOF'\nD:\\x\nEOF",
+			);
+		});
+
+		it("does not quote across newlines after a spaced path on the << line", () => {
+			const cmd =
+				"cat <<EOF > /d/My Docs/out.txt\n" +
+				"\u0000RAD_HEREDOC_0\u0000\n" +
+				"EOF";
+			expect(normalizePathSpacing(cmd)).toBe(
+				'cat <<EOF > "/d/My Docs/out.txt"\n' +
+					"\u0000RAD_HEREDOC_0\u0000\n" +
+					"EOF",
+			);
+		});
+
+		it("supports multiple heredocs", () => {
+			const cmd = "a <<A\n1\nA\nb <<B\n2\nB";
+			const { command, chunks } = extractHeredocChunks(cmd);
+			expect(restoreHeredocChunks(command, chunks)).toBe(cmd);
 		});
 	});
 });

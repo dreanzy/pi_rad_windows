@@ -4,11 +4,13 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { normalizeNulRedirects } from "./nul-redirect.ts";
 import {
+	extractHeredocChunks,
 	normalizeBashPaths,
 	normalizeBashTmpRefs,
 	normalizeCdD,
 	normalizePathSpacing,
 	normalizeTmpPath,
+	restoreHeredocChunks,
 } from "./path-fix.ts";
 
 /**
@@ -33,12 +35,16 @@ export default function (pi: ExtensionAPI) {
 
 		// ── bash tool: apply all normalizations ────────────────────
 		if (isToolCallEventType("bash", event)) {
-			event.input.command = normalizePathSpacing(
-				normalizeBashPaths(
-					normalizeBashTmpRefs(
-						normalizeCdD(normalizeNulRedirects(event.input.command)),
+			// Heredoc bodies are data, not commands — protect them from
+			// path normalization, then restore after the pipeline runs.
+			const { command, chunks } = extractHeredocChunks(event.input.command);
+			event.input.command = restoreHeredocChunks(
+				normalizePathSpacing(
+					normalizeBashPaths(
+						normalizeBashTmpRefs(normalizeCdD(normalizeNulRedirects(command))),
 					),
 				),
+				chunks,
 			);
 		}
 	});

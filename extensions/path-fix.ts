@@ -81,6 +81,58 @@ export function normalizeBashTmpRefs(command: string): string {
 }
 
 /**
+ * Extract heredoc bodies (`<<EOF` … `EOF`) so path normalization can skip
+ * them: heredoc content is data (written to files / fed to stdin), not
+ * shell-parsed commands — rewriting `D:\` or `/tmp/` inside it corrupts the
+ * data. Bodies are replaced with NUL-prefixed placeholders (single tokens
+ * that no normalizer touches) and restored afterwards.
+ *
+ * ponytail: line-scan, not a full bash tokenizer; `<<` inside quotes/strings
+ * would false-positive. Heredoc bodies in real LLM commands rarely contain
+ * literal `<<`. Works for `<<EOF`, `<<'EOF'`, `<<"EOF"`, `<<\EOF`, `<<-EOF`.
+ */
+export function extractHeredocChunks(command: string): {
+	command: string;
+	chunks: string[];
+} {
+	const lines = command.split("\n");
+	const chunks: string[] = [];
+	for (let i = 0; i < lines.length; i++) {
+		const m = lines[i]!.match(/<<-?\s*\\?(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/);
+		if (!m) continue;
+		const delim = m[2]!;
+		const allowTabs = lines[i]!.includes("<<-");
+		// `<<\EOF` (escaped delimiter) is bash-equivalent to `<<'EOF'` —
+		// normalize it so the backslash doesn't fall into the `\`→`/`
+		// conversion of normalizeBashPaths and corrupt the delimiter.
+		if (m[0].includes("\\")) {
+			lines[i] = lines[i]!.replace(m[0], `<<${allowTabs ? "-" : ""}'${delim}'`);
+		}
+		for (let j = i + 1; j < lines.length; j++) {
+			const content = lines[j]!;
+			if ((allowTabs ? content.replace(/^\t+/, "") : content) === delim) {
+				i = j;
+				break;
+			}
+			chunks.push(content);
+			lines[j] = `\u0000RAD_HEREDOC_${chunks.length - 1}\u0000`;
+		}
+	}
+	return { command: lines.join("\n"), chunks };
+}
+
+/** Restore heredoc bodies replaced by {@link extractHeredocChunks}. */
+export function restoreHeredocChunks(
+	command: string,
+	chunks: string[],
+): string {
+	return command.replace(
+		/\u0000RAD_HEREDOC_(\d+)\u0000/g,
+		(_m, i: string) => chunks[Number(i)] ?? "",
+	);
+}
+
+/**
  * Quote paths with spaces so Git Bash doesn't split them into multiple args.
  *
  * LLMs commonly emit paths like `/c/Program Files/Git` without quoting,
@@ -99,8 +151,11 @@ export function normalizeBashTmpRefs(command: string): string {
 export function normalizePathSpacing(command: string): string {
 	if (process.platform !== "win32") return command;
 
+	// `\s` → `[ \t]`: the repeated group must not cross line boundaries
+	// (a newline would let it swallow the NUL placeholder row of a heredoc
+	// body after a spaced path on the `<<` line).
 	return command.replace(
-		/(?<!["'`])(\/[a-z]\/[^\s"'`;|&<>]+(?:\s+(?!\/[a-z]\/)[^\s"'`;|&<>]+)+)/g,
+		/(?<!["'`])(\/[a-z]\/[^\s"'`;|&<>]+(?:[ \t]+(?!\/[a-z]\/|\d+(?=[>&]))[^\s"'`;|&<>]+)+)/g,
 		'"$1"',
 	);
 }
