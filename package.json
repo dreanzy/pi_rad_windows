@@ -1,25 +1,25 @@
 {
-  "name": "rad-windows",
-  "version": "0.1.0",
-  "description": "Pi Windows Compatibility Plugin — fixes NUL redirects, path separators, and other Windows-specific issues when running pi under Git Bash.",
-  "license": "MIT",
-  "type": "module",
-  "pi": {
-    "extensions": [
-      "./extensions"
-    ]
-  },
-  "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*"
-  },
-  "devDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@types/node": "*",
-    "typescript": "^5.0.0",
-    "vitest": "^4"
-  }
+	"name": "rad-windows",
+	"version": "0.1.0",
+	"description": "Pi Windows Compatibility Plugin — fixes NUL redirects, path separators, and other Windows-specific issues when running pi under Git Bash.",
+	"license": "MIT",
+	"type": "module",
+	"pi": {
+		"extensions": [
+			"./extensions"
+		]
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-coding-agent": "^0.84.0",
+		"@types/node": "*",
+		"typescript": "^5.0.0",
+		"vitest": "^4"
+	}
 }
