@@ -138,6 +138,9 @@ describe("normalizeBashPaths", () => {
 			expect(normalizeBashPaths("cat C:\\a.txt C:\\b.txt")).toBe(
 				"cat /c/a.txt /c/b.txt",
 			);
+			expect(normalizeBashPaths("cat C:\\a.txt echo hi")).toBe(
+				"cat /c/a.txt echo hi",
+			);
 		});
 
 		it("leaves already-normal paths alone", () => {
@@ -179,6 +182,12 @@ describe("normalizeCdD", () => {
 
 		it("handles forward slash paths too", () => {
 			expect(normalizeCdD("cd /d D:/Projects/test")).toBe("cd /d/Projects/test");
+		});
+
+		it("keeps spaces inside cd /d paths", () => {
+			expect(normalizeCdD("cd /d D:\\Program Files\\Git")).toBe(
+				"cd /d/Program Files/Git",
+			);
 		});
 
 		it("leaves normal cd commands alone", () => {

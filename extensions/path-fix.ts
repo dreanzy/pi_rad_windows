@@ -3,10 +3,29 @@
  *
  * Git Bash expects Unix-style paths. Convert:
  *   - `C:\...` or `C:/...` → `/c/...`  (MSYS drive-letter convention)
- *   - Remaining `\` → `/` in path contexts
+ *
+ * Other backslashes (regex escapes like `\|`, quoted strings) are left
+ * untouched — a global `\` → `/` rewrite silently corrupts grep/sed patterns.
  *
  * No-op on non-Windows platforms.
  */
+
+/**
+ * Drive-letter path segment: `C:\foo` / `C:/foo`. Spaces are kept inside
+ * the segment (`C:\Program Files\Git`) but a space followed by a new drive
+ * letter or a shell operator (`&&`, `|`, `;` …) ends it, so
+ * `cat C:\a.txt C:\b.txt` stays two arguments.
+ *
+ * ponytail: a space followed by a plain command word (`cat C:\a.txt echo hi`)
+ * is swallowed into the segment — Git Bash reports the mangled path loudly,
+ * which is recoverable.
+ */
+const DRIVE_SEG = String.raw`([A-Za-z]):[\\/]((?:[^\s"'\`;|&<>]+|[ \t](?![A-Za-z]:[\\/]|&&|\|\||[;&|<>]))*)`;
+
+/** `C:\foo` (drive + rest) → `/c/foo` with backslashes converted. */
+function toMsysPath(drive: string, rest: string): string {
+	return `/${drive.toLowerCase()}/${rest.replace(/\\/g, "/")}`;
+}
 
 export function normalizeBashPaths(command: string): string {
 	if (process.platform !== "win32") return command;
@@ -15,16 +34,9 @@ export function normalizeBashPaths(command: string): string {
 	// form (/c/foo). Only the segment starting at the drive letter is
 	// rewritten — backslashes elsewhere (regex escapes like \| \b \.,
 	// quoted strings) pass through untouched, so grep/sed patterns survive.
-	// Spaces inside the segment are kept (C:\Program Files\Git) but a
-	// space followed by a new drive letter or shell operator ends it
-	// (cat C:\a.txt C:\b.txt stays two arguments).
-	// ponytail: bare relative Windows paths (dir\file.txt) are left to
-	// Git Bash, which mangles them loudly (file-not-found) — recoverable,
-	// unlike the silent no-match corruption a global \ → / causes.
 	command = command.replace(
-		/\b([A-Za-z]):[\\/](?:[^\s"'`;|&<>]+|[ \t](?![A-Za-z]:[\\/]|&&|\|\||[;&|<>]))*/g,
-		(m: string, drive: string) =>
-			`/${drive.toLowerCase()}/${m.slice(3).replace(/\\/g, "/")}`,
+		new RegExp(`\\b${DRIVE_SEG}`, "g"),
+		(_m: string, drive: string, rest: string) => toMsysPath(drive, rest),
 	);
 
 	return command;
@@ -35,23 +47,16 @@ export function normalizeBashPaths(command: string): string {
  *
  * LLMs trained on Windows data sometimes emit `cd /d D:\path` which is
  * cmd.exe syntax — Git Bash interprets `/d` as a directory argument.
- * Strips the flag and normalizes the drive letter path.
- *
- * Must run BEFORE normalizeBashPaths so the resulting /x/ path is
- * further cleaned up (backslashes → forward slashes).
+ * Strips the flag and normalizes the whole path (including spaces).
  *
  * No-op on non-Windows platforms.
  */
 export function normalizeCdD(command: string): string {
 	if (process.platform !== "win32") return command;
 
-	// Convert the whole rest of the path too: normalizeBashPaths no longer
-	// does a global \ → / (it would corrupt regex escapes), so a leftover
-	// D:\path\with\backslashes would otherwise survive intact.
 	return command.replace(
-		/cd\s+\/d\s+([A-Za-z]):[\\/]([^\s"'`;|&<>]*)/gi,
-		(_m, drive: string, rest: string) =>
-			`cd /${drive.toLowerCase()}/${rest.replace(/\\/g, "/")}`,
+		new RegExp(`cd\\s+\\/d\\s+${DRIVE_SEG}`, "gi"),
+		(_m: string, drive: string, rest: string) => `cd ${toMsysPath(drive, rest)}`,
 	);
 }
 
@@ -111,8 +116,7 @@ export function extractHeredocChunks(command: string): {
 		const delim = m[2]!;
 		const allowTabs = lines[i]!.includes("<<-");
 		// `<<\EOF` (escaped delimiter) is bash-equivalent to `<<'EOF'` —
-		// normalize it so the backslash doesn't fall into the `\`→`/`
-		// conversion of normalizeBashPaths and corrupt the delimiter.
+		// normalize it to the quoted form for a single canonical shape.
 		if (m[0].includes("\\")) {
 			lines[i] = lines[i]!.replace(m[0], `<<${allowTabs ? "-" : ""}'${delim}'`);
 		}
