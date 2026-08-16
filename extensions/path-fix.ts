@@ -11,17 +11,21 @@
 export function normalizeBashPaths(command: string): string {
 	if (process.platform !== "win32") return command;
 
-	// Convert drive letters: C:\ or C:/ → /c/ (lowercase)
-	// Only match word-boundary drive letters (X:\ or X:/)
-	command = command.replace(/\b([A-Za-z]):[\\/]/g, (_match, drive: string) => {
-		return `/${drive.toLowerCase()}/`;
-	});
-
-	// Convert remaining backslashes to forward slashes.
-	// In LLM-emitted bash commands for Git Bash, backslash path separators
-	// are far more common than deliberate escape sequences.
-	// ponytail: naive \ → / replacement; escape-aware version if edge cases arise.
-	command = command.replace(/\\/g, "/");
+	// Convert whole drive-letter path segments (C:\foo, C:/foo) to MSYS
+	// form (/c/foo). Only the segment starting at the drive letter is
+	// rewritten — backslashes elsewhere (regex escapes like \| \b \.,
+	// quoted strings) pass through untouched, so grep/sed patterns survive.
+	// Spaces inside the segment are kept (C:\Program Files\Git) but a
+	// space followed by a new drive letter or shell operator ends it
+	// (cat C:\a.txt C:\b.txt stays two arguments).
+	// ponytail: bare relative Windows paths (dir\file.txt) are left to
+	// Git Bash, which mangles them loudly (file-not-found) — recoverable,
+	// unlike the silent no-match corruption a global \ → / causes.
+	command = command.replace(
+		/\b([A-Za-z]):[\\/](?:[^\s"'`;|&<>]+|[ \t](?![A-Za-z]:[\\/]|&&|\|\||[;&|<>]))*/g,
+		(m: string, drive: string) =>
+			`/${drive.toLowerCase()}/${m.slice(3).replace(/\\/g, "/")}`,
+	);
 
 	return command;
 }
@@ -41,9 +45,13 @@ export function normalizeBashPaths(command: string): string {
 export function normalizeCdD(command: string): string {
 	if (process.platform !== "win32") return command;
 
+	// Convert the whole rest of the path too: normalizeBashPaths no longer
+	// does a global \ → / (it would corrupt regex escapes), so a leftover
+	// D:\path\with\backslashes would otherwise survive intact.
 	return command.replace(
-		/cd\s+\/d\s+([A-Za-z]):[\\/]/gi,
-		(_match, drive: string) => `cd /${drive.toLowerCase()}/`,
+		/cd\s+\/d\s+([A-Za-z]):[\\/]([^\s"'`;|&<>]*)/gi,
+		(_m, drive: string, rest: string) =>
+			`cd /${drive.toLowerCase()}/${rest.replace(/\\/g, "/")}`,
 	);
 }
 
