@@ -29,17 +29,6 @@ const DEFAULT_CONFIG: RadWindowsConfig = {
 	pathFix: false,
 };
 
-/**
- * Keep a value only when it is an explicit boolean; otherwise use the default.
- *
- * ponytail: lenient fallback instead of failing the whole extension on a
- * typo'd value — a wrong-type key is treated as absent. Revisit if config
- * errors should ever be loud.
- */
-function boolFlag(value: unknown, fallback: boolean): boolean {
-	return typeof value === "boolean" ? value : fallback;
-}
-
 export function readConfig(): RadWindowsConfig {
 	const path = join(getAgentDir(), "rad-windows.json");
 	let raw: string;
@@ -61,12 +50,16 @@ export function readConfig(): RadWindowsConfig {
 			);
 			return { ...DEFAULT_CONFIG };
 		}
-		const cfg = parsed as Record<string, unknown>;
-		return {
-			nulRedirect: boolFlag(cfg.nulRedirect, DEFAULT_CONFIG.nulRedirect),
-			tmpPathFix: boolFlag(cfg.tmpPathFix, DEFAULT_CONFIG.tmpPathFix),
-			pathFix: boolFlag(cfg.pathFix, DEFAULT_CONFIG.pathFix),
-		};
+		// Keep only explicit booleans for known keys; wrong-type or unknown
+		// keys are treated as absent (lenient fallback instead of failing the
+		// whole extension on a typo'd value). ponytail: revisit if config
+		// errors should be loud.
+		const bools = Object.fromEntries(
+			Object.entries(parsed as Record<string, unknown>).filter(
+				([k, v]) => Object.hasOwn(DEFAULT_CONFIG, k) && typeof v === "boolean",
+			),
+		);
+		return { ...DEFAULT_CONFIG, ...bools };
 	} catch {
 		console.warn(`[rad-windows] Failed to parse ${path}; using defaults.`);
 		return { ...DEFAULT_CONFIG };

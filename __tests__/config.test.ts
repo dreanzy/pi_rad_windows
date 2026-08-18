@@ -68,6 +68,11 @@ describe("readConfig", () => {
 		expect(readConfig()).toEqual({ ...DEFAULTS, pathFix: true });
 	});
 
+	it("ignores unknown boolean keys too", () => {
+		writeConfig('{"foo": true, "pathFix": true}');
+		expect(readConfig()).toEqual({ ...DEFAULTS, pathFix: true });
+	});
+
 	describe("malformed config falls back to defaults with one warning", () => {
 		it("invalid JSON", () => {
 			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});

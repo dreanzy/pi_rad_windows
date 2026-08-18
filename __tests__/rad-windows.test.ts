@@ -10,24 +10,33 @@ import {
 	restoreHeredocChunks,
 } from "../extensions/path-fix.ts";
 
+// Simulate a non-Windows platform for no-op tests.
+function mockPlatform(platform: "win32" | "linux") {
+	beforeEach(() => {
+		vi.stubGlobal("process", { ...process, platform });
+	});
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+}
+
 // ── NUL redirect ────────────────────────────────────────────────
 
 describe("normalizeNulRedirects", () => {
 	it("leaves commands without NUL redirects unchanged", () => {
 		expect(normalizeNulRedirects("echo hello")).toBe("echo hello");
-		expect(normalizeNulRedirects("grep nul file.txt")).toBe("grep nul file.txt");
+		expect(normalizeNulRedirects("grep nul file.txt")).toBe(
+			"grep nul file.txt",
+		);
 	});
 
 	describe("non-Windows no-op", () => {
-		beforeEach(() => {
-			vi.stubGlobal("process", { ...process, platform: "linux" });
-		});
-		afterEach(() => {
-			vi.unstubAllGlobals();
-		});
+		mockPlatform("linux");
 
 		it("does nothing", () => {
-			expect(normalizeNulRedirects("echo hello > nul")).toBe("echo hello > nul");
+			expect(normalizeNulRedirects("echo hello > nul")).toBe(
+				"echo hello > nul",
+			);
 		});
 	});
 
@@ -51,14 +60,18 @@ describe("normalizeNulRedirects", () => {
 
 		it("does not rewrite nul as part of a filename", () => {
 			expect(normalizeNulRedirects("echo > nul.txt")).toBe("echo > nul.txt");
-			expect(normalizeNulRedirects("echo > nul-backup")).toBe("echo > nul-backup");
+			expect(normalizeNulRedirects("echo > nul-backup")).toBe(
+				"echo > nul-backup",
+			);
 		});
 
 		it("handles pipe/semicolon/&& boundaries", () => {
 			expect(normalizeNulRedirects("echo a > nul && echo b > nul")).toBe(
 				"echo a >/dev/null && echo b >/dev/null",
 			);
-			expect(normalizeNulRedirects("echo > nul|cat")).toBe("echo >/dev/null|cat");
+			expect(normalizeNulRedirects("echo > nul|cat")).toBe(
+				"echo >/dev/null|cat",
+			);
 			expect(normalizeNulRedirects("echo > nul;echo done")).toBe(
 				"echo >/dev/null;echo done",
 			);
@@ -66,7 +79,9 @@ describe("normalizeNulRedirects", () => {
 
 		it("does not replace escaped redirect operators", () => {
 			expect(normalizeNulRedirects("echo \\> nul")).toBe("echo \\> nul");
-			expect(normalizeNulRedirects("echo \\\\\\> nul")).toBe("echo \\\\\\> nul");
+			expect(normalizeNulRedirects("echo \\\\\\> nul")).toBe(
+				"echo \\\\\\> nul",
+			);
 		});
 	});
 });
@@ -75,12 +90,7 @@ describe("normalizeNulRedirects", () => {
 
 describe("normalizeBashPaths", () => {
 	describe("non-Windows no-op", () => {
-		beforeEach(() => {
-			vi.stubGlobal("process", { ...process, platform: "linux" });
-		});
-		afterEach(() => {
-			vi.unstubAllGlobals();
-		});
+		mockPlatform("linux");
 
 		it("does nothing", () => {
 			expect(normalizeBashPaths("cd C:\\Users")).toBe("cd C:\\Users");
@@ -154,12 +164,7 @@ describe("normalizeBashPaths", () => {
 
 describe("normalizeCdD", () => {
 	describe("non-Windows no-op", () => {
-		beforeEach(() => {
-			vi.stubGlobal("process", { ...process, platform: "linux" });
-		});
-		afterEach(() => {
-			vi.unstubAllGlobals();
-		});
+		mockPlatform("linux");
 
 		it("does nothing", () => {
 			expect(normalizeCdD("cd /d D:\\Projects\\test")).toBe(
@@ -170,9 +175,9 @@ describe("normalizeCdD", () => {
 
 	describe("Windows", () => {
 		it("strips /d flag from cd /d D:\\...", () => {
-			expect(normalizeCdD("cd /d D:\\Projects\\TsProjects\\pi_rad_joplin")).toBe(
-				"cd /d/Projects/TsProjects/pi_rad_joplin",
-			);
+			expect(
+				normalizeCdD("cd /d D:\\Projects\\TsProjects\\pi_rad_joplin"),
+			).toBe("cd /d/Projects/TsProjects/pi_rad_joplin");
 			// 注：normalizeBashPaths 不再做全局 \ → /，因此 cd /d 自身消化整段路径
 		});
 
@@ -181,7 +186,9 @@ describe("normalizeCdD", () => {
 		});
 
 		it("handles forward slash paths too", () => {
-			expect(normalizeCdD("cd /d D:/Projects/test")).toBe("cd /d/Projects/test");
+			expect(normalizeCdD("cd /d D:/Projects/test")).toBe(
+				"cd /d/Projects/test",
+			);
 		});
 
 		it("keeps spaces inside cd /d paths", () => {
@@ -205,12 +212,7 @@ describe("normalizeCdD", () => {
 
 describe("normalizeTmpPath", () => {
 	describe("non-Windows no-op", () => {
-		beforeEach(() => {
-			vi.stubGlobal("process", { ...process, platform: "linux" });
-		});
-		afterEach(() => {
-			vi.unstubAllGlobals();
-		});
+		mockPlatform("linux");
 
 		it("does nothing", () => {
 			expect(normalizeTmpPath("/tmp/script.py")).toBe("/tmp/script.py");
@@ -219,28 +221,29 @@ describe("normalizeTmpPath", () => {
 
 	describe("Windows", () => {
 		it("rewrites /tmp/ prefix to ./", () => {
-			expect(normalizeTmpPath("/tmp/check_folders.py")).toBe("./check_folders.py");
+			expect(normalizeTmpPath("/tmp/check_folders.py")).toBe(
+				"./check_folders.py",
+			);
 		});
 
 		it("rewrites nested paths too", () => {
-			expect(normalizeTmpPath("/tmp/subdir/file.txt")).toBe("./subdir/file.txt");
+			expect(normalizeTmpPath("/tmp/subdir/file.txt")).toBe(
+				"./subdir/file.txt",
+			);
 		});
 
 		it("leaves non-/tmp/ paths alone", () => {
 			expect(normalizeTmpPath("./local/file.ts")).toBe("./local/file.ts");
-			expect(normalizeTmpPath("C:\\Users\\file.txt")).toBe("C:\\Users\\file.txt");
+			expect(normalizeTmpPath("C:\\Users\\file.txt")).toBe(
+				"C:\\Users\\file.txt",
+			);
 		});
 	});
 });
 
 describe("normalizeBashTmpRefs", () => {
 	describe("non-Windows no-op", () => {
-		beforeEach(() => {
-			vi.stubGlobal("process", { ...process, platform: "linux" });
-		});
-		afterEach(() => {
-			vi.unstubAllGlobals();
-		});
+		mockPlatform("linux");
 
 		it("does nothing", () => {
 			expect(normalizeBashTmpRefs("python /tmp/script.py")).toBe(
@@ -257,8 +260,12 @@ describe("normalizeBashTmpRefs", () => {
 		});
 
 		it("rewrites any command /tmp/...", () => {
-			expect(normalizeBashTmpRefs("node /tmp/server.js")).toBe("node ./server.js");
-			expect(normalizeBashTmpRefs("bash /tmp/deploy.sh")).toBe("bash ./deploy.sh");
+			expect(normalizeBashTmpRefs("node /tmp/server.js")).toBe(
+				"node ./server.js",
+			);
+			expect(normalizeBashTmpRefs("bash /tmp/deploy.sh")).toBe(
+				"bash ./deploy.sh",
+			);
 			expect(normalizeBashTmpRefs("cat /tmp/data.txt")).toBe("cat ./data.txt");
 		});
 
@@ -266,13 +273,15 @@ describe("normalizeBashTmpRefs", () => {
 			expect(normalizeBashTmpRefs("echo log > /tmp/out.txt")).toBe(
 				"echo log > ./out.txt",
 			);
-			expect(normalizeBashTmpRefs("cmd >> /tmp/log.txt")).toBe("cmd >> ./log.txt");
+			expect(normalizeBashTmpRefs("cmd >> /tmp/log.txt")).toBe(
+				"cmd >> ./log.txt",
+			);
 		});
 
 		it("rewrites /tmp/ in flag arguments", () => {
-			expect(normalizeBashTmpRefs("python /tmp/a.py --output /tmp/out.txt")).toBe(
-				"python ./a.py --output ./out.txt",
-			);
+			expect(
+				normalizeBashTmpRefs("python /tmp/a.py --output /tmp/out.txt"),
+			).toBe("python ./a.py --output ./out.txt");
 		});
 
 		it("does NOT rewrite /tmp/ in URLs", () => {
@@ -302,12 +311,7 @@ describe("normalizeBashTmpRefs", () => {
 
 describe("normalizePathSpacing", () => {
 	describe("non-Windows no-op", () => {
-		beforeEach(() => {
-			vi.stubGlobal("process", { ...process, platform: "linux" });
-		});
-		afterEach(() => {
-			vi.unstubAllGlobals();
-		});
+		mockPlatform("linux");
 
 		it("does nothing", () => {
 			expect(normalizePathSpacing("cd /c/Program Files/Git")).toBe(
@@ -387,7 +391,9 @@ describe("normalizePathSpacing", () => {
 
 		it("leaves commands without paths unchanged", () => {
 			expect(normalizePathSpacing("echo hello")).toBe("echo hello");
-			expect(normalizePathSpacing("ls -la | grep foo")).toBe("ls -la | grep foo");
+			expect(normalizePathSpacing("ls -la | grep foo")).toBe(
+				"ls -la | grep foo",
+			);
 		});
 	});
 
@@ -430,7 +436,9 @@ describe("normalizePathSpacing", () => {
 
 		it("does not quote across newlines after a spaced path on the << line", () => {
 			const cmd =
-				"cat <<EOF > /d/My Docs/out.txt\n" + "\u0000RAD_HEREDOC_0\u0000\n" + "EOF";
+				"cat <<EOF > /d/My Docs/out.txt\n" +
+				"\u0000RAD_HEREDOC_0\u0000\n" +
+				"EOF";
 			expect(normalizePathSpacing(cmd)).toBe(
 				'cat <<EOF > "/d/My Docs/out.txt"\n' +
 					"\u0000RAD_HEREDOC_0\u0000\n" +
