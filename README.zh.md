@@ -15,13 +15,13 @@ Pi Windows 兼容性插件 — 修复在 Git Bash 下运行 pi 时的 NUL 重定
 
 ## 修复内容
 
-| 问题 | 之前 | 之后 |
-|------|------|------|
-| stdout 重定向到 NUL | `echo hi > nul` | `echo hi > /dev/null` |
-| stderr 重定向到 NUL | `build 2> NUL` | `build 2> /dev/null` |
-| 合并重定向 | `cmd &>> Nul` | `cmd &>> /dev/null` |
-| 盘符路径 | `cd C:\Users` | `cd /c/Users` |
-| 反斜杠分隔符 | `cat C:\a\b.txt` | `cat /c/a/b.txt` |
+| 问题                | 之前             | 之后                  |
+| ------------------- | ---------------- | --------------------- |
+| stdout 重定向到 NUL | `echo hi > nul`  | `echo hi > /dev/null` |
+| stderr 重定向到 NUL | `build 2> NUL`   | `build 2> /dev/null`  |
+| 合并重定向          | `cmd &>> Nul`    | `cmd &>> /dev/null`   |
+| 盘符路径            | `cd C:\Users`    | `cd /c/Users`         |
+| 反斜杠分隔符        | `cat C:\a\b.txt` | `cat /c/a/b.txt`      |
 
 所有修复**仅 Windows 生效**。Linux/macOS 下插件为 no-op。
 
@@ -48,7 +48,27 @@ pi install /path/to/pi_rad_windows
 
 2. **`normalizeBashPaths`** — 将 Windows 盘符路径（`C:\...`）转为 MSYS 约定格式（`/c/...`），并将剩余反斜杠路径分隔符替换为正斜杠。
 
-两者仅在 `process.platform === "win32"` 时运行。
+两者仅在 `process.platform === "win32"` 时运行。`pathFix` 组默认为关闭（opt-in），见[配置](#配置)。
+
+## 配置
+
+每个修复是 `~/.pi/agent/rad-windows.json`（pi 全局 agent 配置目录，经 `getAgentDir()` 解析）中的一个开关：
+
+```json
+{
+	"nulRedirect": true,
+	"tmpPathFix": true,
+	"pathFix": false
+}
+```
+
+| 键            | 默认值  | 作用                                                                      |
+| ------------- | ------- | ------------------------------------------------------------------------- |
+| `nulRedirect` | `true`  | 将 `> nul` / `2> nul` 等重写为 `> /dev/null`                              |
+| `tmpPathFix`  | `true`  | 将 `write` 与 `bash` 中的 `/tmp/` 路径重写为 cwd 相对路径（跨工具一致性） |
+| `pathFix`     | `false` | Windows 盘符路径转 MSYS 格式、`cd /d` 处理、带空格路径自动加引号          |
+
+省略的键保持默认值，未知键被忽略。文件缺失或 JSON 非法时回退默认值。配置在扩展加载时读取一次——改完需执行 `/reload`。
 
 ## 开发
 

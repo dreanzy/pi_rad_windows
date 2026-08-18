@@ -15,13 +15,13 @@ When pi runs on **Windows** through **Git Bash** (MSYS2), two common issues aris
 
 ## What It Fixes
 
-| Problem | Before | After |
-|---------|--------|-------|
-| stdout redirect to NUL | `echo hi > nul` | `echo hi > /dev/null` |
-| stderr redirect to NUL | `build 2> NUL` | `build 2> /dev/null` |
-| combined redirect | `cmd &>> Nul` | `cmd &>> /dev/null` |
-| drive letter path | `cd C:\Users` | `cd /c/Users` |
-| backslash separators | `cat C:\a\b.txt` | `cat /c/a/b.txt` |
+| Problem                | Before           | After                 |
+| ---------------------- | ---------------- | --------------------- |
+| stdout redirect to NUL | `echo hi > nul`  | `echo hi > /dev/null` |
+| stderr redirect to NUL | `build 2> NUL`   | `build 2> /dev/null`  |
+| combined redirect      | `cmd &>> Nul`    | `cmd &>> /dev/null`   |
+| drive letter path      | `cd C:\Users`    | `cd /c/Users`         |
+| backslash separators   | `cat C:\a\b.txt` | `cat /c/a/b.txt`      |
 
 All fixes are **Windows-only**. On Linux/macOS the plugin is a no-op.
 
@@ -48,7 +48,27 @@ The plugin hooks into pi's `tool_call` event and intercepts `bash` tool commands
 
 2. **`normalizeBashPaths`** — Converts Windows drive-letter paths (`C:\...`) to MSYS convention (`/c/...`), and replaces remaining backslash path separators with forward slashes.
 
-Both run only on `process.platform === "win32"`.
+Both run only on `process.platform === "win32"`. The `pathFix` group is opt-in — see [Configuration](#configuration).
+
+## Configuration
+
+Each fix is a feature flag in `~/.pi/agent/rad-windows.json` (the pi global agent config dir, resolved via `getAgentDir()`):
+
+```json
+{
+	"nulRedirect": true,
+	"tmpPathFix": true,
+	"pathFix": false
+}
+```
+
+| Key           | Default | Effect                                                                                    |
+| ------------- | ------- | ----------------------------------------------------------------------------------------- |
+| `nulRedirect` | `true`  | Rewrite `> nul` / `2> nul` etc. to `> /dev/null`                                          |
+| `tmpPathFix`  | `true`  | Rewrite `/tmp/` paths to cwd-relative in both `write` and `bash` (cross-tool consistency) |
+| `pathFix`     | `false` | Windows drive-letter paths → MSYS form, `cd /d` handling, spaced-path quoting             |
+
+Omitted keys keep their defaults and unknown keys are ignored. A missing file or invalid JSON falls back to defaults. Config is read once at extension load — run `/reload` after editing it.
 
 ## Development
 
